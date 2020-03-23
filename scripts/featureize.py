@@ -59,9 +59,11 @@ def form_feature_vector(hull):
 
     axis_ratio = float(MA)/ma
     angle = np.abs(np.sin(angle *np.pi/180))
+    extent = rect_area/hull_area
 
     features.append(axis_ratio)
     features.append(aspect_ratio)
+    # features.append(extent)
     features.append(angle)
 
     return np.asarray(features).astype(float)

@@ -3,16 +3,18 @@
 
 import cv2 as cv
 import numpy as np
+np.set_printoptions(suppress=True)
+from sklearn.preprocessing import normalize
+from scipy.spatial.transform import Rotation as rot
 import os
 import pickle
 import random
-import matplotlib.pyplot as plt
 
 from featureize import featureize_hulls
 
 
 """
-Gate detector using image segmentation and shape classification
+Gate detector using image segmentation, shape classification, and robust pose estimation
 """
 
 
@@ -22,14 +24,21 @@ class GateDetector:
     """
 
 
-    def __init__(self, num_clusters=4, im_resize=1.0/4, debug=False):
+    def __init__(self, num_clusters=3, im_resize=1.0/4, debug=False):
         self.num_clusters = num_clusters
         self.im_resize = im_resize
+        self.im_dims = (0,0) # w, h
         self.debug = debug
         self.gate_cntr = None
+        self.gate_dims = (1.2192, 3.2004) # in m
+        self.estimated_poses = []
+        self.frame_count = 0
+        self.gate_pose = (0.0,0.0,0.0,0.0,0.0,0.0) # x,y,z,phi,theta,psi
+        self.focal = 400.0 # In pixels
+        self.curr_image = None
 
-        d = os.path.dirname(os.getcwd())
-        with open(os.path.join(d, 'pickle/model.pkl'), 'rb') as file:
+        directory = os.path.dirname(os.getcwd())
+        with open(os.path.join(directory, 'pickle/model.pkl'), 'rb') as file:
             self.model = pickle.load(file)
 
 
@@ -46,6 +55,7 @@ class GateDetector:
         morph = self.morphological(seg)
         hulls = self.create_convex_hulls(morph)
         gate_im = self.bound_gate_using_poles(hulls, src)
+        pose_im = self.estimate_gate_pose(gate_im)
         return gate_im
 
 
@@ -65,7 +75,9 @@ class GateDetector:
         bgr[1] = cv.GaussianBlur(clahe.apply(bgr[1]), kernel, 0) 
         bgr[2] = cv.GaussianBlur(clahe.apply(bgr[2]), kernel, 0) 
         src = cv.merge(bgr)
-        src = cv.resize(src, (int(src.shape[1]*self.im_resize), int(src.shape[0]*self.im_resize)), cv.INTER_CUBIC )
+        self.im_dims = (int(src.shape[1]*self.im_resize), int(src.shape[0]*self.im_resize))
+        src = cv.resize(src, self.im_dims, cv.INTER_CUBIC )
+        self.curr_image = src
         return src
 
 
@@ -89,40 +101,6 @@ class GateDetector:
         return grad
 
 
-    def segment(self, src):
-        """
-        Constructs features from a source image and clusters the features to produce a segmented image
-
-        @param src: A preprocessed image
-
-        @returns: A segmented grayscale image
-        """
-
-        # Compute gradient on saturation channel of image (seems to have best response to pole)
-        hsv = cv.cvtColor(src, cv.COLOR_BGR2HSV)
-        grad = self.gradient(hsv[:,:,1])
-
-        # Create binary image of color mask on hue 
-        err = 15
-        upper = 15 + err 
-        lower = 15 - err 
-        color_mask = cv.inRange(hsv[:,:,0], lower, upper)
-
-        # Create features where each feature vector is [hue, sat, val, grad_magnitude, color_mask]
-        features = cv.merge([hsv, grad, color_mask]).reshape((hsv.shape[0]*hsv.shape[1], 5)) 
-        features_float = np.float32(features)
-
-        # K Means segmentation, cluster pixels using k means then segment image using grayscale values
-        num_clusters = self.num_clusters
-        criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 100, 1.0)
-        ret,labels,center=cv.kmeans(features_float,num_clusters,None,criteria,3,cv.KMEANS_RANDOM_CENTERS)
-        labels = labels.reshape(hsv.shape[0], hsv.shape[1])
-        labelled_image = (labels.astype(np.float)/(num_clusters-1))
-        labelled_image = (labelled_image*255).astype(np.uint8)
-
-        return  labelled_image
-
-
     def morphological(self, src):
         """
         Smooths a segmented image with morphological operations
@@ -132,10 +110,46 @@ class GateDetector:
         @returns: A morphologically smoothed image
         """
         # Dilation then erosion to smooth segmentation
-        kernel = np.ones((3,3), np.uint8)
-        dilated = cv.dilate(src, kernel, iterations=1)
-        eroded = cv.erode(dilated, kernel, iterations=1)
+        dil_kernel = np.ones((1,1), np.uint8)
+        ero_kernel = np.ones((1,1), np.uint8)
+        dilated = cv.dilate(src, dil_kernel, iterations=1)
+        eroded = cv.erode(dilated, ero_kernel, iterations=1)
         return eroded
+
+
+    def segment(self, src):
+        """
+        Constructs features from a source image and clusters the features to produce a segmented image
+
+        @param src: A preprocessed image
+
+        @returns: A segmented grayscale image
+        """
+
+        # Convert to HSV color space
+        hsv = cv.cvtColor(src, cv.COLOR_BGR2HSV)
+
+        # Compute gradient threshold on saturation channel of HSV image (seems to have best response to pole)
+        grad = self.gradient(hsv[:,:,1])
+        grad_mean, grad_std = cv.meanStdDev(grad)
+        _,grad_thresh = cv.threshold(grad, grad_mean+4*grad_std,255,cv.THRESH_BINARY)
+            
+        # Create binary image of color mask on hue 
+        upper_hue_mask = cv.inRange(hsv[:,:,0],175,180) # Upper orange/red range
+        lower_hue_mask = cv.inRange(hsv[:,:,0],0,30) # Lower orange/red range
+        color_mask = np.bitwise_or(upper_hue_mask, lower_hue_mask)
+
+        # Create feature matrix
+        features = cv.merge([ grad_thresh, color_mask])
+        X = np.float32(features.reshape((hsv.shape[0]*hsv.shape[1],2)))
+
+        # K Means segmentation, cluster pixels using k means then segment image using grayscale values
+        criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 100, 1.0)
+        ret,labels,center=cv.kmeans(X,self.num_clusters,None,criteria,3,cv.KMEANS_RANDOM_CENTERS)
+        labels = labels.reshape(hsv.shape[0], hsv.shape[1])
+        labelled_image = (labels.astype(np.float)/(self.num_clusters-1))
+        labelled_image = (labelled_image*255).astype(np.uint8)
+        return  labelled_image
 
 
     def create_convex_hulls(self, src):
@@ -150,9 +164,9 @@ class GateDetector:
         # Search over the binary images associated to each cluster
         hulls = []
         right_size_hulls = []
-        for i in np.unique(src):
 
-            # Create binary image
+        for i in np.unique(src):
+            # Create binary image for a given segmented cluster
             bin = np.where(src!= i, 0, 255).astype(np.uint8)
 
             # If a cluster takes up more than half the screen, it most likely does not contain the poles, skip to next cluster
@@ -166,15 +180,14 @@ class GateDetector:
             for j in range(len(contours)):
                 hulls.append(cv.convexHull(contours[j], False))
 
-            # Get the hulls whose area is within some range dependant on the src image
+            # Get the hulls whose area is within some reasonable range to be a pole
             for hull in hulls:
                 hull_area = cv.contourArea(hull)
-                im_size = src.shape[0]*src.shape[1]
-                upper_range = 1.0/7
-                lower_range = 1.0/5000
+                im_size = self.im_dims[0]*self.im_dims[1]
+                upper_range = 1.0/8
+                lower_range = 1.0/800
                 if (hull_area > im_size*lower_range and hull_area < im_size*upper_range):
                     right_size_hulls.append(hull)
-
         return right_size_hulls
 
 
@@ -184,21 +197,21 @@ class GateDetector:
         of the gate onto the raw image
 
         @param hulls: A set of the convex hulls to search
-        @param src: The raw image 
+        @param src: The raw  unscaled image 
 
-        @returns: The raw image with the bounding box around the gate location drawn on
+        @returns: The raw scaled image with the bounding box around the gate location drawn on
         """
-        
+
         # Resize src to match the image the hulls were found on
-        src = cv.resize(src, (int(src.shape[1]*self.im_resize), int(src.shape[0]*self.im_resize)), cv.INTER_CUBIC )
+        src = cv.resize(src, self.im_dims, cv.INTER_CUBIC )
 
-        # Featureize hulls
+        # We can't do anything if we aren't given any hulls
+        if len(hulls) == 0:
+            return src
+
+        # Featureize hulls, predict using model and get classified pole hulls
         X_hat = featureize_hulls(hulls)
-
-        # Predict 
         y_hat = self.model.predict(X_hat)
-
-        # Get pole hulls
         pole_hulls  = np.array(hulls)[y_hat == 1]
 
         # Get 2D array of all the points of the pole hulls (to determine extrema)
@@ -212,25 +225,22 @@ class GateDetector:
 
             gate_cntr, src = self.create_gate_contour(hull_points, src)
 
-            # Get area of contour
-            area = cv.contourArea(gate_cntr)
-
             # Get bounding box of contour to get it's approximate width/height
             _,_,w,h = cv.boundingRect(gate_cntr)
 
             # If the bounding rectangle is more wide than high, most likely we have detected both poles
             if float(w)/h >= 1:
                 if (self.gate_cntr is not None):
+                    # We make sure the area hasn't changed too much (50%) between frames to account for outliers 
                     prev_cntr = self.gate_cntr
-                    _,_,w_p,h_p = cv.boundingRect(prev_cntr)
-                    prev_area = w_p*h_p
-                    # We check to make sure the area hasn't changed too much between frames to account for outliers 
-                    if not (area > 1.20*prev_area or area < 0.80*prev_area):
+                    prev_area = cv.contourArea(prev_cntr)
+                    curr_area = cv.contourArea(gate_cntr)
+                    if not (curr_area > 1.50*prev_area or curr_area < 0.50*prev_area):
                         self.gate_cntr = gate_cntr
                 else:
-                    # We make the ASSUMPTION that the first time we detect the gate, it is correct
+                    # We make the strong assumption that the first time we detect the gate, it is accurate
                     self.gate_cntr = gate_cntr
-
+                
         # Draw the gate if we have detected it
         if (self.gate_cntr is not None):
             src = cv.polylines(src, [self.gate_cntr], True, (0,0,255),2)
@@ -239,7 +249,6 @@ class GateDetector:
         if self.debug:
             src = cv.polylines(src, hulls,True, (255,255,255),2)
             src = cv.polylines(src, pole_hulls,True, (0,0,255),2)
-
         return src
 
 
@@ -250,110 +259,159 @@ class GateDetector:
         @param hull_points: 2D array of points
         @param src: The raw image 
 
-        @returns: The gate contour and the src image with debug info if activated 
+        @returns: The gate contour drawn on the src image with debug info if activated 
         """
 
-        width = src.shape[1]
+        width = self.im_dims[0]
 
          # Get extrema points of hulls (i.e the points closest/furthest from the top left (0,0) and top right (width, 0) of the image)
-        up_left = hull_points[np.argmin(np.linalg.norm(hull_points, axis=1))]
+        top_left = hull_points[np.argmin(np.linalg.norm(hull_points, axis=1))]
+        top_right = hull_points[np.argmin(np.linalg.norm(hull_points - np.array([width, 0]), axis=1))]
         bot_right = hull_points[np.argmax(np.linalg.norm(hull_points, axis=1))]
-        up_right = hull_points[np.argmin(np.linalg.norm(hull_points - np.array([width, 0]), axis=1))]
         bot_left = hull_points[np.argmax(np.linalg.norm(hull_points - np.array([width, 0]), axis=1))]
 
-        # Draw extrema points for debug purposes
         if self.debug:
-            src = cv.circle(src, (int(up_left[0]), int(up_left[1])), 8, (0,128,0), 4)
+            # Draw extrema points for debug purposes
+            src = cv.circle(src, (int(top_left[0]), int(top_left[1])), 8, (0,128,0), 4)
             src = cv.circle(src, (int(bot_right[0]), int(bot_right[1])), 8, (0,128,0), 4)
-            src = cv.circle(src, (int(up_right[0]), int(up_right[1])), 8, (0,128,0), 4)
+            src = cv.circle(src, (int(top_right[0]), int(top_right[1])), 8, (0,128,0), 4)
             src = cv.circle(src, (int(bot_left[0]), int(bot_left[1])), 8, (0,128,0), 4)
 
-        # Define gate contour
-        gate_cntr = np.array([np.array([up_left], dtype=np.int32), 
-                            np.array([up_right], dtype=np.int32), 
-                            np.array([bot_right], dtype=np.int32), 
-                            np.array([bot_left], dtype=np.int32)])
-
+        gate_cntr = np.array([np.array([top_left], dtype=np.int32), 
+                             np.array([top_right], dtype=np.int32), 
+                             np.array([bot_right], dtype=np.int32), 
+                             np.array([bot_left], dtype=np.int32)])
         return gate_cntr, src
 
 
-    def display_and_label_hulls(self, hulls, src):
+    def estimate_gate_pose(self, src):
         """
-        Displays each hull and allows someone to label the hull as being associated to a pole or not and returns a
-        data structure mapping hulls to labels
+        Estimates the gate pose by computing the median of calcualted poses across
 
-        @param hulls: The convex hulls 
-        @param src: The source image from which teh convex hulls have been created
+        @param src: Image with gate contour drawn on
 
-        @returns: A list where each entry is a tuple mapping a hull to it's label
+        @returns: Input image with pose estimation written on it
         """
-        
-        labels = []
-
-        for hull in hulls:
-
-            angle = 0
-            MA = 1
-            ma = 1
-            try:
-                (x,y),(MA,ma),angle = cv.fitEllipse(hull)
-            except:
-                pass
-            cosAngle = np.abs(np.cos(angle*np.pi/180))
-
-            # Only human-classify hulls if it is reasonably a vertically oriented rectangle
-            # This is a hueristic to not have to waste time clasifying hulls clearly not poles
-            if  (cosAngle < 1.75) and (cosAngle > 0.85) and (MA/ma < 0.28):
-                cpy = src.copy()
-                hull_img = cv.polylines(cpy, [hull], True, (0,0,255), 3)
-                cv.imshow("Hull", hull_img)
-                keycode = cv.waitKey(0)
-                if keycode == 49:
-                    labels.append((hull, 0))
-                    print("Not a Pole")
-                elif keycode == 50:
-                    labels.append((hull, 1))
-                    print("A Pole!")
-                else:
-                    raise Exception("Unexpected Key Pressed")
-            else:
-                labels.append((hull, 0))
-        cv.destroyAllWindows()
-        return labels
-
-
-    def create_labelled_dataset(self):
-        """
-        From the images folder, tries to open the images and for each image, allows the user to label the hulls as being 
-        associated to a pole or not, and returns a dictionary of hulls to labels
-        
-        @returns: A dataset mapping the hulls of each image to their labels
-        """
-
-        print("-------------------------------------------------------------------")
-        print("                 How to Use the Hull Label Tool")
-        print("-------------------------------------------------------------------")
-        print("- If a hull is NOT associated to a pole: press the 1 button")
-        print("- If a hull IS associated to a pole: press the 2 button")
-        print("\n- If any other key is pressed, the program EXITS")
-        print("-------------------------------------------------------------------")
-
-        imgs = []
-        labels = []
-        directory = os.path.dirname(os.getcwd())
-        
-        # Get absolute path of all images in the images folder
-        for dirpath,_,filenames in os.walk(os.path.join(directory, 'images')):
-            for f in filenames:
-                imgs.append(os.path.abspath(os.path.join(dirpath, f)))
-
-        # Get the hulls from the segmented image and run the display and label program for each image
-        for img in imgs:
-            src = cv.imread(img, 1)
-            pre = self.preprocess(src)
-            seg = self.segment(pre)
-            mor = self.morphological(seg)
-            hulls = self.create_convex_hulls(seg)
-            labels += self.display_and_label_hulls(hulls, pre)
+        # Make sure we have a gate contour before estimating pose
+        if self.gate_cntr is not None:
             
-        return labels
+            # Estimate pose
+            pose, src = self.calculate_gate_pose(src)
+            self.estimated_poses.append(pose) 
+
+            # Every 5 frames, set pose of gate as median of estimated poses, reset estimation frame
+            if self.frame_count % 5 == 0:
+                self.gate_pose = np.round(np.median(self.estimated_poses, axis=0), 2)
+                self.estimated_poses = []
+
+            # Draw gate pose
+            x,y,z,phi,theta,psi = self.gate_pose
+            text = "X:%.2fm, Y:%.2fm, Z:%.2fm, Roll:%.2fdeg, Pitch:%.2fdeg, Yaw:%.2fdeg" %(x,y,z,phi,theta,psi)
+            w,h = self.im_dims
+            text_point = (25, h-25)
+            src = cv.putText(src, text, text_point,cv.FONT_HERSHEY_DUPLEX, 0.8, (255,255,255))
+        self.frame_count += 1
+        return src
+
+
+    def calculate_gate_pose(self, src):
+        """
+        Calculates the gate pose in 6 DOF using the gate contour
+
+        @returns: A length 6 tuple containing the change in pose (x,y,z,phi,theta,psi) needed
+                  to bring the AUV's body frame in line with the centre of the gate. Also returns
+                  image with debug info on it if applicable
+
+        """
+
+        h,w = self.gate_dims
+        top_left = self.gate_cntr[0][0]
+        top_right = self.gate_cntr[1][0]
+        bot_right = self.gate_cntr[2][0]
+        bot_left = self.gate_cntr[3][0]
+
+        # Calculate the horizontal and vertical components
+        left_pole = bot_left - top_left
+        right_pole = bot_right - top_right
+        bot_line = bot_right - bot_left
+        top_line = top_right - top_left
+
+        # Use the top left point (closest to image origin) as basis origin
+        origin = top_left
+        hor  = top_line
+        vert = left_pole
+
+        A = np.power(hor[0],2) + np.power(hor[1],2)
+        B = np.power(vert[0],2) + np.power(vert[1],2)
+        C = hor[0]*vert[0] + hor[1]*vert[1]
+
+        # Get the unique positive real root of the polynomial
+        roots = np.roots([h**2, 0, (h**2*A-w**2*B), 0, -(w*C)**2])
+        real_roots = roots[np.isreal(roots)].real
+        pos_root =  real_roots[real_roots >=  0][0] # If root is zero, zero appears twice
+
+        # Compute unrotated basis vectors
+        u1 = np.concatenate((hor,[pos_root]))
+        u2 = np.concatenate((vert, [-C/pos_root if pos_root > 0 else 0]))
+        u3 = np.cross(u1,u2)
+
+        # Get pixel scale information of 2D projection of 3D poles
+        s = np.linalg.norm(u1)/w
+
+        # Computed desired planar basis vectors
+        v1 = [s*w,0,0]
+        v2 = [0,s*h,0]
+        v3 = [0,0,s*h*s*w]
+
+        # Define normalized rotated basis (U) and desired unrotated basis (V)
+        U = normalize(np.array([u1,u2,u3]).T, axis=0)
+        V = normalize(np.array([v1,v2,v3]).T, axis=0)
+
+        # r = rot.from_euler('yzx', 30, degrees=True).as_matrix()
+        # U = r@V
+        # print(U)
+        # print(V)
+
+        # Determine rotation matrix between bases and decompose into phi,theta,psi
+        R = np.linalg.solve(U,V)
+        q = rot.from_matrix(R)
+        phi,theta,psi = tuple(q.as_euler('yzx', degrees=True))
+
+        # The gate's width and height in terms of pixels
+        w_prime = int(s*w)
+        h_prime = int(s*h)
+
+        # Get pixel width and height changes from image edge to a centered gate
+        im_w, im_h = self.im_dims
+        dw = (im_w - w_prime)//2
+        dh = (im_h - h_prime)//2
+
+        # Get desired pixel change in y,z to align centre of gate with AUV
+        dy = dw - origin[0]
+        dz = dh - origin[1]
+
+        # Get x,y,z translational changes the AUV needs to take to bring it's body frame in
+        # line with the center of the gate. Note that in the coordinate frame we are 
+        # using, increasing x is forwards, increasing y is right, increasing z is down
+        x = np.round(self.focal/s, 2)
+        y = -np.round(dy*x/self.focal, 2)
+        z = -np.round(dz*x/self.focal,2)
+
+        if self.debug:
+            # Gate's current basis
+            src = cv.circle(src, (int(origin[0]), int(origin[1])), 8,  (0,128,0), 4)
+            src = cv.line(src, tuple(bot_left), tuple(top_left),(0,128,0), 4)
+            src = cv.line(src, tuple(top_right), tuple(top_left), (0,128,0), 2)
+            # Gate's desired basis
+            src = cv.circle(src, (int(dw), int(dh)), 8, (0,256,128), 4)
+            src = cv.line(src, (dw,dh), (dw,dh+h_prime),(0,256,128), 4)
+            src = cv.line(src, (dw,dh), (dw+w_prime, dh), (0,256,128), 2)
+            # Line connecting translated origins
+            src = cv.line(src, (origin[0],origin[1]), (origin[0]+dy, origin[1]+dz),(0,128,255), 4)
+
+        return (x,y,z,phi,theta,psi), src
+
+
+
+
+       

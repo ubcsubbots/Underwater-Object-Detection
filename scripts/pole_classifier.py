@@ -6,6 +6,7 @@ import os
 import numpy as np
 import cv2 as cv
 from sklearn import svm
+import sklearn
 from sklearn.metrics import classification_report
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  
@@ -51,7 +52,7 @@ def train_and_plot():
 
     # Load pickle data
     directory = os.path.dirname(os.getcwd())
-    with open(os.path.join(directory, 'pickle/pole_data1.pkl'), 'rb') as file:
+    with open(os.path.join(directory, 'pickle/pole_data2.pkl'), 'rb') as file:
         data = pickle.load(file)
 
         # Featurize raw data
@@ -93,6 +94,7 @@ def train_and_plot():
         d = os.path.dirname(os.getcwd())
         with open(os.path.join(d, 'pickle/model.pkl'), 'wb') as file:
             pickle.dump(model, file)
+            print("Updated model.pkl")
 
         # Plot the classified training data
         plot(X,y, y_hat)

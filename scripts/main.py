@@ -3,9 +3,11 @@ import cv2 as cv
 import random
 import pickle
 import os
+import numpy as np
 from fractions import Fraction
 
 import gate_detector
+import data_labelling
 
 
 """
@@ -24,20 +26,37 @@ def gate_detector_video_test(video_name, im_resize=1.0, record=False, debug=Fals
     """
     detector = gate_detector.GateDetector(im_resize=im_resize, debug=debug)
     cap = cv.VideoCapture('../videos/' + video_name )
-    frame_width = int(cap.get(3)*im_resize)
-    frame_height = int(cap.get(4)*im_resize)
+    frame_width = int(cap.get(3)*im_resize)#*2
+    frame_height = int(cap.get(4)*im_resize)#*2
     if record:
         r = random.randint(0,1000)
         out = cv.VideoWriter('../videos/output' + str(r) + '.avi',cv.VideoWriter_fourcc(*'XVID') , 20.0, (frame_width,frame_height))
     if (cap.isOpened()== False): 
         print("Error opening video stream or file")
     while(cap.isOpened()):
-        ret, frame = cap.read()
+        ret, src = cap.read()
         if ret == True:
-            poles = detector.detect(frame)
+            pre = detector.preprocess(src)
+            seg = detector.morphological(detector.segment(pre)) 
+            # seg, grad, mask = detector.segment(pre)
+            hulls = detector.create_convex_hulls(seg)
+            gate = detector.bound_gate_using_poles(hulls, src)
+            pose = detector.estimate_gate_pose(gate)
+
+            # 4 Frame output
+            # seg = cv.cvtColor(seg, cv.COLOR_GRAY2BGR)
+            # grad = cv.cvtColor(grad, cv.COLOR_GRAY2BGR)
+            # mask = cv.cvtColor(mask, cv.COLOR_GRAY2BGR)
+            # top_row = np.hstack((grad, mask))
+            # bot_row = np.hstack((basis, pose))
+            # pose = np.vstack((top_row, bot_row))
+
+            cv.imshow('Gate',pose)
+            if debug:
+                cv.imshow('Processed', pre)
+                cv.imshow('Segmented', seg)
             if record :
-                out.write(poles)
-            cv.imshow("Poles",poles)
+                out.write(pose)
             if cv.waitKey(25) & 0xFF == ord('q'):
                 break
         else: 
@@ -56,18 +75,20 @@ def gate_detector_image_test(image_name, im_resize=1.0, debug=False):
     @param debug: True if you want debug information displayed on the image
 
     """
-    src = cv.imread('../images/' + image_name,1)
+    src = cv.imread('../images/distances/' + image_name,1)
 
     detector = gate_detector.GateDetector(im_resize=im_resize, debug=debug)
 
     pre = detector.preprocess(src)
-    seg = detector.segment(pre)
-    seg = detector.morphological(seg)
+    seg = detector.morphological(detector.segment(pre))
     hulls = detector.create_convex_hulls(seg)
     gate = detector.bound_gate_using_poles(hulls, src)
-    cv.imshow('Processed', pre)
-    cv.imshow('Segmented', seg)
-    cv.imshow('Gate', gate)
+    pose = detector.estimate_gate_pose(gate)
+
+    cv.imshow('Gate', pose)
+    if debug:
+        cv.imshow('Processed', pre)
+        cv.imshow('Segmented', seg)
     cv.waitKey(0)
 
 
@@ -75,14 +96,13 @@ def gate_detector_label_poles():
     """
     Run Pole label program
     """
-    detector = gate_detector.GateDetector(im_resize=3.0/4)
-    labels = detector.create_labelled_dataset()
+    labeller = data_labelling.PoleHullLabeller()
+    labels = labeller.create_labelled_dataset()
 
     # Dump labels data to pickle
     r = random.randint(0,1000)
     d = os.path.dirname(os.getcwd())
     with open(os.path.join(d, 'pickle/pole_data' + str(r) + '.pkl'), 'wb') as file:
- 
         pickle.dump(labels, file)
 
 
@@ -100,16 +120,13 @@ if __name__ == '__main__':
     record = io_args.record
 
     if gate == "im":
-        # Run detector on set of 16 images of various ranges to gate
-        for i in range(16 + 1):
-            im_name = 'raw_Moment' + str(i) + '.jpg'
+        # Run detector on set of 20 images of various distances to gate
+        for i in range(20):
+            im_name = str(i) + '.jpg'
             gate_detector_image_test(im_name, im_resize=im_resize, debug=debug)
     elif gate == "vid":
         # Run detector on video
-        try:
-            gate_detector_video_test('gate.mp4',im_resize=im_resize, record=record, debug=debug)
-        except:
-            print("You need to put gate.mp4 into the videos folder")
+        gate_detector_video_test('gate.mp4',im_resize=im_resize, record=record, debug=debug)
     elif gate == "label":
         # Run data label program
         gate_detector_label_poles()
