@@ -75,7 +75,7 @@ def gate_detector_image_test(image_name, im_resize=1.0, debug=False):
     @param debug: True if you want debug information displayed on the image
 
     """
-    src = cv.imread('../images/distances/' + image_name,1)
+    src = cv.imread('../images/gate/' + image_name,1)
 
     detector = gate_detector.GateDetector(im_resize=im_resize, debug=debug)
 

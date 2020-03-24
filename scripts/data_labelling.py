@@ -35,7 +35,7 @@ class PoleHullLabeller:
         directory = os.path.dirname(os.getcwd())
         
         # Get absolute path of all images in the images folder
-        for dirpath,_,filenames in os.walk(os.path.join(directory, 'images', 'distances')):
+        for dirpath,_,filenames in os.walk(os.path.join(directory, 'images', 'gate')):
             for f in filenames:
                 imgs.append(os.path.abspath(os.path.join(dirpath, f)))
 
