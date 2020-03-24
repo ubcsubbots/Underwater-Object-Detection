@@ -13,6 +13,6 @@ Where `<type>` is one of  `im/vid/label`, the `--resize` flag is a fraction defi
 
 Here is an gif showing some of the inner workings of the algorithm
 
-![](gate_example.gif)
+![](/videos/gate_example.gif)
 
 From top left going clockwise we have thresholded saturation gradient, orange hue mask, visualized basis alignment, and gate detection and pose estimation. The algorithm works by first running k-means segmentation on a preprocessed image, where the features are the thresholded gradient and orange hue mask. Then, we calculate the convex hulls around the connected components of the segmented image and identify which hulls belong to a pole using an SVM classifier. Using these hulls, we can get the extrema points of the bounding box which wraps around the orange poles of either side of the gate, which is drawn on the image in the bottom right in red. Also, since we know the dimensions of the gate, we can calculate the nessary rotation and translation needed to bring the gate into the desired position (planar and centered in the image). This basis translation step is shown in the bottom left where the dark green represents the current basis of the gate and light green represents the desired basis.  
