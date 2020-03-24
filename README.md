@@ -11,4 +11,4 @@ Where `<type>` is one of  `im/vid/label`, the `--resize` flag is a fraction defi
 
 `python main.py --gate vid --resize 1/2 --record`
 
-![](example.gif)
+![](gate_example.gif)
