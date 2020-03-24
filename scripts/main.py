@@ -26,8 +26,8 @@ def gate_detector_video_test(video_name, im_resize=1.0, record=False, debug=Fals
     """
     detector = gate_detector.GateDetector(im_resize=im_resize, debug=debug)
     cap = cv.VideoCapture('../videos/' + video_name )
-    frame_width = int(cap.get(3)*im_resize)#*2
-    frame_height = int(cap.get(4)*im_resize)#*2
+    frame_width = int(cap.get(3)*im_resize)
+    frame_height = int(cap.get(4)*im_resize)
     if record:
         r = random.randint(0,1000)
         out = cv.VideoWriter('../videos/output' + str(r) + '.avi',cv.VideoWriter_fourcc(*'XVID') , 20.0, (frame_width,frame_height))
@@ -36,22 +36,8 @@ def gate_detector_video_test(video_name, im_resize=1.0, record=False, debug=Fals
     while(cap.isOpened()):
         ret, src = cap.read()
         if ret == True:
-            pre = detector.preprocess(src)
-            seg = detector.morphological(detector.segment(pre)) 
-            # seg, grad, mask = detector.segment(pre)
-            hulls = detector.create_convex_hulls(seg)
-            gate = detector.bound_gate_using_poles(hulls, src)
-            pose = detector.estimate_gate_pose(gate)
-
-            # 4 Frame output
-            # seg = cv.cvtColor(seg, cv.COLOR_GRAY2BGR)
-            # grad = cv.cvtColor(grad, cv.COLOR_GRAY2BGR)
-            # mask = cv.cvtColor(mask, cv.COLOR_GRAY2BGR)
-            # top_row = np.hstack((grad, mask))
-            # bot_row = np.hstack((basis, pose))
-            # pose = np.vstack((top_row, bot_row))
-
-            cv.imshow('Gate',pose)
+            pre,seg,pose = detector.detect(src)
+            cv.imshow('Gate With Pose',pose)
             if debug:
                 cv.imshow('Processed', pre)
                 cv.imshow('Segmented', seg)
@@ -78,14 +64,8 @@ def gate_detector_image_test(image_name, im_resize=1.0, debug=False):
     src = cv.imread('../images/gate/' + image_name,1)
 
     detector = gate_detector.GateDetector(im_resize=im_resize, debug=debug)
-
-    pre = detector.preprocess(src)
-    seg = detector.morphological(detector.segment(pre))
-    hulls = detector.create_convex_hulls(seg)
-    gate = detector.bound_gate_using_poles(hulls, src)
-    pose = detector.estimate_gate_pose(gate)
-
-    cv.imshow('Gate', pose)
+    pre,seg,pose = detector.detect(src)
+    cv.imshow('Gate With Pose', pose)
     if debug:
         cv.imshow('Processed', pre)
         cv.imshow('Segmented', seg)
@@ -98,7 +78,6 @@ def gate_detector_label_poles():
     """
     labeller = data_labelling.PoleHullLabeller()
     labels = labeller.create_labelled_dataset()
-
     # Dump labels data to pickle
     r = random.randint(0,1000)
     d = os.path.dirname(os.getcwd())

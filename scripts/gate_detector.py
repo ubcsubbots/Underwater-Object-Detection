@@ -24,8 +24,7 @@ class GateDetector:
     """
 
 
-    def __init__(self, num_clusters=3, im_resize=1.0/4, debug=False):
-        self.num_clusters = num_clusters
+    def __init__(self, im_resize=1.0, debug=False):
         self.im_resize = im_resize
         self.im_dims = (0,0) # w, h
         self.debug = debug
@@ -35,7 +34,7 @@ class GateDetector:
         self.frame_count = 0
         self.gate_pose = (0.0,0.0,0.0,0.0,0.0,0.0) # x,y,z,phi,theta,psi
         self.focal = 400.0 # In pixels
-        self.curr_image = None
+        self.curr_image = None 
 
         directory = os.path.dirname(os.getcwd())
         with open(os.path.join(directory, 'pickle/model.pkl'), 'rb') as file:
@@ -44,20 +43,19 @@ class GateDetector:
 
     def detect(self, src):
         """
-        Detects the gate in a raw image
+        Detects the gate in a raw image and returns the images associated to the stages
+        of the algorithm
 
         @param src: Raw underwater image containing the gate
 
-        @returns: An image containing the bounding box around a gate, if it can find it 
+        @returns: Images associated to preprocessing, segmentation, bounding and pose estimation
         """
         pre = self.preprocess(src)
-        seg = self.segment(pre)
-        morph = self.morphological(seg)
-        hulls = self.create_convex_hulls(morph)
+        seg = self.morphological(self.segment(pre))
+        hulls = self.create_convex_hulls(seg)
         gate_im = self.bound_gate_using_poles(hulls, src)
         pose_im = self.estimate_gate_pose(gate_im)
-        return gate_im
-
+        return pre, seg, pose_im
 
     def preprocess(self, src):
         """
@@ -119,7 +117,7 @@ class GateDetector:
 
     def segment(self, src):
         """
-        Constructs features from a source image and clusters the features to produce a segmented image
+        Segments the image using thresholded saturation gradient and orange color mask
 
         @param src: A preprocessed image
 
@@ -139,25 +137,20 @@ class GateDetector:
         lower_hue_mask = cv.inRange(hsv[:,:,0],0,30) # Lower orange/red range
         color_mask = np.bitwise_or(upper_hue_mask, lower_hue_mask)
 
-        # Create feature matrix
-        features = cv.merge([ grad_thresh, color_mask])
-        X = np.float32(features.reshape((hsv.shape[0]*hsv.shape[1],2)))
+        # Combine the two binary image, note that the gradient threshold has the best response from farther away
+        # and the color mask works best at close distances, so by combining them, we have an image that produces
+        # a great response to the poles at all distances to them
+        segmented = np.bitwise_or(grad_thresh, color_mask)
 
-        # K Means segmentation, cluster pixels using k means then segment image using grayscale values
-        criteria = (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 100, 1.0)
-        ret,labels,center=cv.kmeans(X,self.num_clusters,None,criteria,3,cv.KMEANS_RANDOM_CENTERS)
-        labels = labels.reshape(hsv.shape[0], hsv.shape[1])
-        labelled_image = (labels.astype(np.float)/(self.num_clusters-1))
-        labelled_image = (labelled_image*255).astype(np.uint8)
-        return  labelled_image
+        return segmented
 
 
     def create_convex_hulls(self, src):
         """
-        Creates a set of convex hulls which come from all the binary images of the source image and which are of an 
+        Creates a set of convex hulls from the binary segmented image and which are of an 
         appropriate size to be a pole of the gate
 
-        @params src: A segmented grayscale image
+        @params src: A binary segmented grayscale image
 
         @returns: A set of convex hulls where each hull is an np array of 2D points
         """
@@ -165,29 +158,22 @@ class GateDetector:
         hulls = []
         right_size_hulls = []
 
-        for i in np.unique(src):
-            # Create binary image for a given segmented cluster
-            bin = np.where(src!= i, 0, 255).astype(np.uint8)
+        # First find contours in the image
+        _, contours, _ = cv.findContours(src, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
-            # If a cluster takes up more than half the screen, it most likely does not contain the poles, skip to next cluster
-            if np.sum(bin != 0) >= (bin.shape[0]*bin.shape[1]/2):
-                continue
+        # Create a convex hull around each connected contour
+        for j in range(len(contours)):
+            hulls.append(cv.convexHull(contours[j], False))
 
-            # First find contours in the image
-            _, contours, _ = cv.findContours(bin, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+        # Get the hulls whose area is within some reasonable range to be a pole
+        for hull in hulls:
+            hull_area = cv.contourArea(hull)
+            im_size = self.im_dims[0]*self.im_dims[1]
+            upper_range = 1.0/8
+            lower_range = 1.0/800
+            if (hull_area > im_size*lower_range and hull_area < im_size*upper_range):
+                right_size_hulls.append(hull)
 
-            # Create a convex hull around each connected contour
-            for j in range(len(contours)):
-                hulls.append(cv.convexHull(contours[j], False))
-
-            # Get the hulls whose area is within some reasonable range to be a pole
-            for hull in hulls:
-                hull_area = cv.contourArea(hull)
-                im_size = self.im_dims[0]*self.im_dims[1]
-                upper_range = 1.0/8
-                lower_range = 1.0/800
-                if (hull_area > im_size*lower_range and hull_area < im_size*upper_range):
-                    right_size_hulls.append(hull)
         return right_size_hulls
 
 
@@ -249,6 +235,7 @@ class GateDetector:
         if self.debug:
             src = cv.polylines(src, hulls,True, (255,255,255),2)
             src = cv.polylines(src, pole_hulls,True, (0,0,255),2)
+
         return src
 
 
@@ -309,7 +296,8 @@ class GateDetector:
             text = "X:%.2fm, Y:%.2fm, Z:%.2fm, Roll:%.2fdeg, Pitch:%.2fdeg, Yaw:%.2fdeg" %(x,y,z,phi,theta,psi)
             w,h = self.im_dims
             text_point = (25, h-25)
-            src = cv.putText(src, text, text_point,cv.FONT_HERSHEY_DUPLEX, 0.8, (255,255,255))
+            src = cv.putText(src, text, text_point,cv.FONT_HERSHEY_DUPLEX, 0.7, (255,255,255))
+
         self.frame_count += 1
         return src
 
@@ -367,15 +355,11 @@ class GateDetector:
         U = normalize(np.array([u1,u2,u3]).T, axis=0)
         V = normalize(np.array([v1,v2,v3]).T, axis=0)
 
-        # r = rot.from_euler('yzx', 30, degrees=True).as_matrix()
-        # U = r@V
-        # print(U)
-        # print(V)
-
-        # Determine rotation matrix between bases and decompose into phi,theta,psi
+        # Determine rotation matrix between bases and decompose into phi,theta,psi. Note that our order of basis
+        # vectors is actually y,z,x so our decomposed euler angles are actually theta,psi,phi
         R = np.linalg.solve(U,V)
         q = rot.from_matrix(R)
-        phi,theta,psi = tuple(q.as_euler('yzx', degrees=True))
+        theta,psi,phi = tuple(q.as_euler('xyz', degrees=True))
 
         # The gate's width and height in terms of pixels
         w_prime = int(s*w)
