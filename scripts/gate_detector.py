@@ -57,6 +57,7 @@ class GateDetector:
         pose_im = self.estimate_gate_pose(gate_im)
         return pre, seg, pose_im
 
+
     def preprocess(self, src):
         """
         Preprocesses the source image to adjust for underwater artifacts
@@ -65,7 +66,7 @@ class GateDetector:
 
         @returns: The preprocessed image
         """
-        # Apply CLAHE and Gaussian on each RGB channel then downsize
+        # Apply CLAHE and Gaussian on each RGB channel then resize
         clahe = cv.createCLAHE(clipLimit=1.0, tileGridSize=(8,8))
         bgr = cv.split(src)
         kernel = (3,3)
@@ -99,20 +100,22 @@ class GateDetector:
         return grad
 
 
-    def morphological(self, src):
+    def morphological(self, src, open_kernel=(1,1), close_kernel=(1,1)):
         """
         Smooths a segmented image with morphological operations
 
         @param src: A segmented grayscale image
+        @param open_kernel: Opening kernel dimensions
+        @param close_kernel: Closing kernel dimensions
 
         @returns: A morphologically smoothed image
         """
-        # Dilation then erosion to smooth segmentation
-        dil_kernel = np.ones((1,1), np.uint8)
-        ero_kernel = np.ones((1,1), np.uint8)
-        dilated = cv.dilate(src, dil_kernel, iterations=1)
-        eroded = cv.erode(dilated, ero_kernel, iterations=1)
-        return eroded
+        # Opening followed by closing
+        open_k = cv.getStructuringElement(cv.MORPH_RECT,open_kernel)
+        close_k = cv.getStructuringElement(cv.MORPH_RECT,close_kernel)
+        opening = cv.morphologyEx(src, cv.MORPH_OPEN, open_k)
+        closing = cv.morphologyEx(opening, cv.MORPH_CLOSE, close_k)
+        return closing
 
 
     def segment(self, src):
@@ -145,12 +148,14 @@ class GateDetector:
         return segmented
 
 
-    def create_convex_hulls(self, src):
+    def create_convex_hulls(self, src, upper_area=1.0/2, lower_area=1.0/800):
         """
         Creates a set of convex hulls from the binary segmented image and which are of an 
         appropriate size to be a pole of the gate
 
         @params src: A binary segmented grayscale image
+        @params upper_area: Upper threshold of area filter 
+        @params lower_area: Lower threshold of area filter
 
         @returns: A set of convex hulls where each hull is an np array of 2D points
         """
@@ -169,9 +174,7 @@ class GateDetector:
         for hull in hulls:
             hull_area = cv.contourArea(hull)
             im_size = self.im_dims[0]*self.im_dims[1]
-            upper_range = 1.0/8
-            lower_range = 1.0/800
-            if (hull_area > im_size*lower_range and hull_area < im_size*upper_range):
+            if (hull_area > im_size*lower_area and hull_area < im_size*upper_area):
                 right_size_hulls.append(hull)
 
         return right_size_hulls
@@ -235,7 +238,6 @@ class GateDetector:
         if self.debug:
             src = cv.polylines(src, hulls,True, (255,255,255),2)
             src = cv.polylines(src, pole_hulls,True, (0,0,255),2)
-
         return src
 
 
@@ -271,11 +273,12 @@ class GateDetector:
         return gate_cntr, src
 
 
-    def estimate_gate_pose(self, src):
+    def estimate_gate_pose(self, src, k=5):
         """
-        Estimates the gate pose by computing the median of calcualted poses across
+        Estimates the gate pose by computing the median of calculated poses across k frames
 
         @param src: Image with gate contour drawn on
+        @param k: Window size of estimated poses
 
         @returns: Input image with pose estimation written on it
         """
@@ -286,8 +289,8 @@ class GateDetector:
             pose, src = self.calculate_gate_pose(src)
             self.estimated_poses.append(pose) 
 
-            # Every 5 frames, set pose of gate as median of estimated poses, reset estimation frame
-            if self.frame_count % 5 == 0:
+            # Every k frames, set pose of gate as median of estimated poses, reset estimation frame
+            if self.frame_count % k == 0:
                 self.gate_pose = np.round(np.median(self.estimated_poses, axis=0), 2)
                 self.estimated_poses = []
 
@@ -296,7 +299,7 @@ class GateDetector:
             text = "X:%.2fm, Y:%.2fm, Z:%.2fm, Roll:%.2fdeg, Pitch:%.2fdeg, Yaw:%.2fdeg" %(x,y,z,phi,theta,psi)
             w,h = self.im_dims
             text_point = (25, h-25)
-            src = cv.putText(src, text, text_point,cv.FONT_HERSHEY_DUPLEX, 0.7, (255,255,255))
+            src = cv.putText(src, text, text_point,cv.FONT_HERSHEY_DUPLEX, self.im_resize*1.3, (255,255,255))
 
         self.frame_count += 1
         return src
@@ -309,7 +312,6 @@ class GateDetector:
         @returns: A length 6 tuple containing the change in pose (x,y,z,phi,theta,psi) needed
                   to bring the AUV's body frame in line with the centre of the gate. Also returns
                   image with debug info on it if applicable
-
         """
 
         h,w = self.gate_dims
