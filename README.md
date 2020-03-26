@@ -1,6 +1,6 @@
 
 # Underwater-Object-Detection
-For formulating and testing underwater object detection algorithms.  Note that this is a repo for designing and testing, which is why it is in python, the actual implementation of the algorithms will be in C++ for better performance.
+For designing and testing underwater object detection algorithms.  Note that since this repo is only for designing and testing, it is in python, the actual implementations used in our ROS system of the algorithms developed here will be in C++ for better performance.
 
 ### Get Started
 We need to get the development environment set up to ensure there are no dependency issues when working on this repo. We will use conda to do so. First install [Anaconda](https://www.anaconda.com/distribution/), making sure to use the Python 3.7 version. Once Anaconda is installed, open up the Anaconda prompt and 
