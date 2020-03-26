@@ -21,7 +21,7 @@ class PoleHullLabeller:
         """
 
         print("-------------------------------------------------------------------")
-        print("                 How to Use the Hull Label Tool")
+        print("                 How to Use the Pole Hull Label Tool")
         print("-------------------------------------------------------------------")
         print("- If a hull is NOT associated to a pole: press the 1 button")
         print("- If a hull IS associated to a pole: press the 2 button")
