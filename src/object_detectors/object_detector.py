@@ -31,8 +31,11 @@ class ObjectDetector(ABC):
         Detects an object from a raw image 
 
         @param src: Raw image
+
+        @returns: Three images representing the algorithm at various stages. The last image
+                  must always be the final output of the algorithm
         """
-        pass
+        return src,src,src
 
     
     def preprocess(self, src):

@@ -49,9 +49,9 @@ class GateDetector(ObjectDetector):
         pre = super().preprocess(src)
         seg = super().morphological(self.segment(pre), open_kernel=(1,1), close_kernel=(1,1))
         hulls = super().convex_hulls(seg, upper_area=1.0/4, lower_area=1.0/800)
-        gate_im = self.bound_gate_using_poles(hulls, src)
-        pose_im = self.estimate_gate_pose(gate_im)
-        return pre, seg, pose_im
+        bound = self.bound_gate_using_poles(hulls, src)
+        bound_and_pose = self.estimate_gate_pose(bound)
+        return pre, seg, bound_and_pose
 
 
     def segment(self, src):

@@ -6,7 +6,7 @@ import os
 import numpy as np
 from fractions import Fraction
 
-from object_detectors import gate_detector
+from object_detectors import gate_detector, path_marker_detector
 from machine_learning import data_labelling, pole_classifier
 
 
@@ -15,19 +15,20 @@ Main Underwater Object Detection Program
 """
 
 
-def gate_detector_video_test(video_name, im_resize=1.0, record=False, debug=False):
+def detector_video_test(video_name, detector, record=False):
     """
-    Test GateDetector on a video, records the output
+    Test GateDetector on a video, records the output if record is true
 
-    @param im_resize: The resized image the detector is run on
+    @param detector: Detector object which must implement base object detector class
     @param record: True if you want to record and save the output of the detector
-    @param debug: True if you want debug information displayed on each frame
-
     """
+    print("-------------------------------------------------------------------")
+    print("            Video Test: Press any key to stop video                ")
+    print("-------------------------------------------------------------------")
     directory = os.path.dirname(os.getcwd())
     infile = os.path.join(directory, 'videos/' + video_name )
-    detector = gate_detector.GateDetector(im_resize=im_resize, debug=debug)
-    cap = cv.VideoCapture(infile )
+    cap = cv.VideoCapture(infile)
+    im_resize = detector.im_resize
     frame_width = int(cap.get(3)*im_resize)
     frame_height = int(cap.get(4)*im_resize)
     if record:
@@ -39,14 +40,14 @@ def gate_detector_video_test(video_name, im_resize=1.0, record=False, debug=Fals
     while(cap.isOpened()):
         ret, src = cap.read()
         if ret == True:
-            pre,seg,pose = detector.detect(src)
-            cv.imshow('Gate With Pose',pose)
+            im_1,im_2,im_out = detector.detect(src)
+            cv.imshow('Output',im_out)
             if debug:
-                cv.imshow('Processed', pre)
-                cv.imshow('Segmented', seg)
+                cv.imshow('Image 1', im_1)
+                cv.imshow('Image 2', im_2)
             if record :
-                out.write(pose)
-            if cv.waitKey(25) & 0xFF == ord('q'):
+                out.write(im_out)
+            if cv.waitKey(25) & 0xFF != 255:
                 break
         else: 
             break
@@ -56,23 +57,27 @@ def gate_detector_video_test(video_name, im_resize=1.0, record=False, debug=Fals
     cv.destroyAllWindows()
 
 
-def gate_detector_image_test(image_name, im_resize=1.0, debug=False):
+def detector_image_test(folder, detector):
     """
-    Test GateDetector on an image, shows the images at various stages of detection
+    Tests detector on a set of 20 image
 
-    @param im_resize: The resized image the detector is run on
-    @param debug: True if you want debug information displayed on the image
+    @param detector: Detector object which must implement base object detector class
 
     """
-    src = cv.imread('../images/gate/' + image_name,1)
-
-    detector = gate_detector.GateDetector(im_resize=im_resize, debug=debug)
-    pre,seg,pose = detector.detect(src)
-    cv.imshow('Gate With Pose', pose)
-    if debug:
-        cv.imshow('Processed', pre)
-        cv.imshow('Segmented', seg)
-    cv.waitKey(0)
+    print("-------------------------------------------------------------------")
+    print("      Image Test: Press any key to advance to the next image       ")
+    print("-------------------------------------------------------------------")
+    directory = os.path.dirname(os.getcwd())
+    for i in range(20):
+        im_name = str(i) + '.jpg'
+        im_file = os.path.join(directory, 'images', folder, im_name)
+        src = cv.imread(im_file,1)
+        im1,im2,out = detector.detect(src)
+        cv.imshow('Output',out)
+        if debug:
+            cv.imshow('Image 1', im1)
+            cv.imshow('Image 2', im2)
+        cv.waitKey(0)
 
 
 def gate_detector_label_poles():
@@ -81,7 +86,6 @@ def gate_detector_label_poles():
     """
     labeller = data_labelling.PoleHullLabeller()
     labels = labeller.create_labelled_dataset()
-    # Dump labels data to pickle
     r = random.randint(0,1000)
     directory = os.path.dirname(os.getcwd())
     with open(os.path.join(directory, 'pickle/pole_data' + str(r) + '.pkl'), 'wb') as file:
@@ -90,7 +94,9 @@ def gate_detector_label_poles():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Underwater Object Detection")
+
     parser.add_argument('-g','--gate')
+    parser.add_argument('-p', '--pathmarker')
     parser.add_argument('-r', '--resize', default=1.0)
     parser.add_argument('-d', '--debug', action='store_true', default=False)
     parser.add_argument('-R', '--record', action='store_true', default=False)
@@ -101,9 +107,10 @@ if __name__ == '__main__':
 
     # Programs
     gate = io_args.gate
+    path_marker = io_args.pathmarker
     classify = io_args.classify
 
-    # Gate args
+    # Detector args
     im_resize = float(Fraction(io_args.resize))
     debug = io_args.debug
     record = io_args.record
@@ -111,26 +118,30 @@ if __name__ == '__main__':
     # Classify args
     datafile = io_args.datafile
     
-    programs = [gate,classify]
-    if (sum(p is None for p in programs) != 1):
-        print("Please use exactly one of [--gate, --classify]")
+    programs = [gate,classify,path_marker]
+    if (sum(p is not None for p in programs) != 1):
+        print("Please only use exactly one of [--gate, --pathmarker, --classify]")
+        exit()
 
     if gate is not None:
-        if gate == "im":
-            # Run detector on set of 20 images of various distances to gate
-            for i in range(20):
-                im_name = str(i) + '.jpg'
-                gate_detector_image_test(im_name, im_resize=im_resize, debug=debug)
+        detector = gate_detector.GateDetector(im_resize=im_resize, debug=debug)
+        if gate == "im": 
+            detector_image_test('gate', detector)
         elif gate == "vid":
-            # Run detector on video
-            gate_detector_video_test('gate.mp4',im_resize=im_resize, record=record, debug=debug)
+            detector_video_test('gate.mp4', detector, record=record)
         elif gate == "label":
-            # Run data label program
             gate_detector_label_poles()
-    
+
+    if path_marker is not None:
+        print("hello")
+        detector = path_marker_detector.PathMarkerDetector(im_resize=im_resize, debug=debug)
+        if path_marker == "im":
+            detector_image_test('pathmarker', detector)
+        elif path_marker == "vid":
+            detector_video_test('pathmarker.mp4', detector, record=record)
+
     if classify is not None:
         if classify == "pole":
-            # Run pole classifer
             pole_classifier.PoleClassifier(datafile=datafile).run()
 
 
