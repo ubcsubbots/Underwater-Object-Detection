@@ -10,7 +10,7 @@ import os
 import pickle
 import random
 
-from featureize import featureize_hulls
+from machine_learning.featurize import PoleFeaturizer
 
 
 """
@@ -35,7 +35,7 @@ class GateDetector:
         self.gate_pose = (0.0,0.0,0.0,0.0,0.0,0.0) # x,y,z,phi,theta,psi
         self.focal = 400.0 # In pixels
         self.curr_image = None 
-
+        self.featurizer = PoleFeaturizer()
         directory = os.path.dirname(os.getcwd())
         with open(os.path.join(directory, 'pickle/model.pkl'), 'rb') as file:
             self.model = pickle.load(file)
@@ -198,8 +198,8 @@ class GateDetector:
         if len(hulls) == 0:
             return src
 
-        # Featureize hulls, predict using model and get classified pole hulls
-        X_hat = featureize_hulls(hulls)
+        # Featurize hulls, predict using model and get classified pole hulls
+        X_hat = self.featurizer.featurize_for_classification(hulls)
         y_hat = self.model.predict(X_hat)
         pole_hulls  = np.array(hulls)[y_hat == 1]
 
