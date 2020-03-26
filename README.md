@@ -1,6 +1,18 @@
 
 # Underwater-Object-Detection
-For formulating and testing underwater object detection algorithms.  Note that this is a repo for designing and testing, which is why it is in python, the actual implementation of the algorithms will be in C++ for better performance.
+For designing and testing underwater object detection algorithms.  Note that since this repo is only for designing and testing, it is in python, the actual implementations used in our ROS system of the algorithms developed here will be in C++ for better performance.
+
+### Get Started
+We need to get the development environment set up to ensure there are no dependency issues when working on this repo. We will use conda to do so. First install [Anaconda](https://www.anaconda.com/distribution/), making sure to use the Python 3.7 version. Once Anaconda is installed, open up the Anaconda prompt and 
+run the following command from the root folder of this repo
+
+`conda env create -f environment.yml`
+
+This will create a conda environment `uod` which contains all the dependencies for this repo. You can use this environment by running the following command
+
+`conda activate uod`
+
+The development environment should now be set up, note that you will need to activate the environment every time you open up a new terminal.  Refer [here](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html) if you need to troubleshoot or want to learn more about conda environments.
 
 ### Gate Detector
 To run the gate detector algorithm run
