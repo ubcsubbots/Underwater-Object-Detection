@@ -47,10 +47,16 @@ class PathMarkerDetector(ObjectDetector):
         @returns: A segmented grayscale image
         """
         # TODO: Implement better segmentaion strategy
-        hsv = cv.cvtColor(src, cv.COLOR_BGR2HSV)
-        grad = super().gradient(hsv[:,:,1])
-        _,grad_thresh = cv.threshold(grad, 0,255,cv.THRESH_OTSU)
-        return grad_thresh
+        # hsv = cv.cvtColor(src, cv.COLOR_BGR2HSV)
+        # grad = super().gradient(hsv[:,:,1])
+        # _,grad_thresh = cv.threshold(grad, 0,255,cv.THRESH_OTSU)
+
+        #Find A* channel and threshold (for getting redder regions)
+        lab = cv.cvtColor(src, cv.COLOR_BGR2LAB)
+        ciea_mean, ciea_std = cv.meanStdDev(lab[:,:,1])
+        _, ciea_thresh = cv.threshold(lab[:,:,1],ciea_mean+2*ciea_std,255,cv.THRESH_BINARY)
+
+        return ciea_thresh
 
     
     def bound_path_marker(self, hulls, src):

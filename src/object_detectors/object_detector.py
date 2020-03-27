@@ -46,16 +46,16 @@ class ObjectDetector(ABC):
 
         @returns: The preprocessed and scaled image
         """
-        # Apply CLAHE and Gaussian on each RGB channel then resize
-        clahe = cv.createCLAHE(clipLimit=1.0, tileGridSize=(8,8))
-        bgr = cv.split(src)
-        kernel = (3,3)
-        bgr[0] = cv.GaussianBlur(clahe.apply(bgr[0]), kernel, 0) 
-        bgr[1] = cv.GaussianBlur(clahe.apply(bgr[1]), kernel, 0) 
-        bgr[2] = cv.GaussianBlur(clahe.apply(bgr[2]), kernel, 0) 
-        src = cv.merge(bgr)
+        # # Apply CLAHE and Gaussian on each RGB channel then resize
+        # clahe = cv.createCLAHE(clipLimit=1.0, tileGridSize=(8,8))
+        # bgr = cv.split(src)
+        # kernel = (3,3)
+        # bgr[0] = cv.GaussianBlur(clahe.apply(bgr[0]), kernel, 0) 
+        # bgr[1] = cv.GaussianBlur(clahe.apply(bgr[1]), kernel, 0) 
+        # bgr[2] = cv.GaussianBlur(clahe.apply(bgr[2]), kernel, 0) 
+        # src = cv.merge(bgr)
         self.im_dims = (int(src.shape[1]*self.im_resize), int(src.shape[0]*self.im_resize))
-        src = cv.resize(src, self.im_dims, cv.INTER_CUBIC )
+        src = cv.resize(src, self.im_dims, cv.INTER_CUBIC)
         self.curr_image = src
         return src
 
@@ -113,7 +113,7 @@ class ObjectDetector(ABC):
         right_size_hulls = []
 
         # First find contours in the image
-        _, contours, _ = cv.findContours(src, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv.findContours(src, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
 
         # Create a convex hull around each connected contour
         for j in range(len(contours)):
