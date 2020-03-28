@@ -18,6 +18,12 @@ class ObjectDetector(ABC):
 
 
     def __init__(self, im_resize=1.0, debug=False, focal=400.0):
+        """
+        Initializes an object detector
+
+        @param im_resize: The scale to resize the image to
+        @param debug: If True, adds debug information to output
+        """
         self.im_resize = im_resize
         self.im_dims = (0,0) # w, h
         self.debug = debug

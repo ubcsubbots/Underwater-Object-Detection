@@ -18,7 +18,7 @@ class ObjectHullLabeller:
     
     def __init__(self, folder, detector, filter_fn):
         """
-        Create an object hull labeller
+        Initializes an object hull labeller
 
         @param folder: The image folder that contains images of the object
         @param detector: The detector used to create the hulls

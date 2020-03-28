@@ -71,6 +71,10 @@ class PathMarkerDetector(ObjectDetector):
         # Resize src to match the image the hulls were found on
         src = cv.resize(src, self.im_dims, cv.INTER_CUBIC )
 
+        # We can't do anything if we aren't given any hulls
+        if len(hulls) == 0:
+            return src
+
         for hull in hulls:
             rect = cv.minAreaRect(hull)
             box = np.int0(cv.boxPoints(rect))
@@ -78,8 +82,6 @@ class PathMarkerDetector(ObjectDetector):
 
         if self.debug:
             src = cv.polylines(src, hulls,True, (255,255,255),2)
-
-        # TODO: bound path marker
 
         return src
 
