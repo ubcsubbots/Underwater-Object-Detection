@@ -117,7 +117,7 @@ if __name__ == '__main__':
     parser.add_argument('-R', '--record', action='store_true', default=False)
 
     parser.add_argument('-c', '--classify')
-    parser.add_argument('-df', '--datafile', default='pole_data1.pkl')
+    parser.add_argument('-df', '--datafile', default='pole_data.pkl')
     io_args = parser.parse_args()
 
     # Programs
