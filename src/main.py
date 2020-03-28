@@ -78,17 +78,27 @@ def detector_image_test(folder, detector):
             cv.imshow('Image 1', im1)
             cv.imshow('Image 2', im2)
         cv.waitKey(0)
+        # Reset gate contour 
+        detector.gate_cntr = None
 
 
-def gate_detector_label_poles():
+def label_data(datatype):
     """
-    Run Pole label program
+    Run data label program given by datatype
+
+    @param datatype: The type of data that is being labelled
     """
-    labeller = data_labelling.PoleHullLabeller()
-    labels = labeller.create_labelled_dataset()
+    labels = []
+    if datatype is "pole":
+        labeller = data_labelling.PoleHullLabeller()
+        labels = labeller.create_labelled_dataset()
+    elif datatype is "pathmarker":
+        labeller = data_labelling.PathMarkerHullLabeller()
+        labels = labeller.create_labelled_dataset()
     r = random.randint(0,1000)
     directory = os.path.dirname(os.getcwd())
-    with open(os.path.join(directory, 'pickle/pole_data' + str(r) + '.pkl'), 'wb') as file:
+    filename = datatype + "_data" + str(r) + '.pkl'
+    with open(os.path.join(directory, 'pickle', filename), 'wb') as file:
         pickle.dump(labels, file)
 
 
@@ -96,7 +106,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Underwater Object Detection")
 
     parser.add_argument('-g','--gate')
-    parser.add_argument('-p', '--pathmarker')
+    parser.add_argument('-pm', '--pathmarker')
     parser.add_argument('-r', '--resize', default=1.0)
     parser.add_argument('-d', '--debug', action='store_true', default=False)
     parser.add_argument('-R', '--record', action='store_true', default=False)
@@ -130,19 +140,21 @@ if __name__ == '__main__':
         elif gate == "vid":
             detector_video_test('gate.mp4', detector, record=record)
         elif gate == "label":
-            gate_detector_label_poles()
+            label_data("pole")
 
     if path_marker is not None:
-        print("hello")
         detector = path_marker_detector.PathMarkerDetector(im_resize=im_resize, debug=debug)
         if path_marker == "im":
             detector_image_test('pathmarker', detector)
         elif path_marker == "vid":
             detector_video_test('pathmarker.mp4', detector, record=record)
+        elif path_marker == "label":
+            label_data("pathmarker")
 
     if classify is not None:
         if classify == "pole":
             pole_classifier.PoleClassifier(datafile=datafile).run()
+
 
 
 

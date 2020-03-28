@@ -2,58 +2,72 @@ import cv2 as cv
 import os
 import numpy as np
 
-from object_detectors import gate_detector
+from object_detectors import gate_detector, path_marker_detector
 
 
 """
 Classes for labelling data
 """
 
-class PoleHullLabeller:
+
+class ObjectHullLabeller:
+    """
+    Base class for labelling hulls associated to an object or not
+    """
+
+    
+    def __init__(self, folder, detector, filter_fn):
+        """
+        Create an object hull labeller
+
+        @param folder: The image folder that contains images of the object
+        @param detector: The detector used to create the hulls
+        @param filter_fn: Function to filter hulls clearly not the desired object, 
+                returns True if it could be the object, otherwise returns False
+        """
+        self.folder = folder
+        self.detector = detector
+        self.filter_fn = filter_fn
 
 
     def create_labelled_dataset(self):
         """
-        From the images folder, tries to open the images and for each image, allows the user to label the hulls as being 
-        associated to a pole or not, and returns a dictionary of hulls to labels
-        
-        @returns: A dataset mapping the hulls of each image to their labels
+        Opens the image folder for the object and for each image, allows a user to label the hulls from
+        that image, then retuns a dataset of the hulls to their labels
+                
+        @returns: A dataset mapping the hulls of every image to their given labels
         """
 
         print("-------------------------------------------------------------------")
-        print("                 How to Use the Pole Hull Label Tool")
+        print("              How to Use the Object Hull Label Tool                ")
         print("-------------------------------------------------------------------")
-        print("- If a hull is NOT associated to a pole: press the 1 button")
-        print("- If a hull IS associated to a pole: press the 2 button")
-        print("\n- If any other key is pressed, the program EXITS")
+        print("- If a hull is NOT associated to the object: press the 1 button    ")
+        print("- If a hull IS associated to the object: press the 2 button        ")
+        print("\n- If any other key is pressed, the program EXITS                 ")
         print("-------------------------------------------------------------------")
-
-        detector = gate_detector.GateDetector(im_resize=3.0/4)
 
         imgs = []
         labels = []
         directory = os.path.dirname(os.getcwd())
         
         # Get absolute path of all images in the images folder
-        for dirpath,_,filenames in os.walk(os.path.join(directory, 'images', 'gate')):
+        for dirpath,_,filenames in os.walk(os.path.join(directory, 'images', self.folder)):
             for f in filenames:
                 imgs.append(os.path.abspath(os.path.join(dirpath, f)))
 
         # Get the hulls from the segmented image and run the display and label program for each image
         for img in imgs:
             src = cv.imread(img, 1)
-            pre = detector.preprocess(src)
-            seg = detector.segment(pre)
-            mor = detector.morphological(seg)
-            hulls = detector.create_convex_hulls(seg)
+            pre, seg, out = self.detector.detect(src)
+            hulls = self.detector.convex_hulls(seg)
             labels += self.display_and_label_hulls(hulls, pre)
         return labels
 
         
     def display_and_label_hulls(self, hulls, src):
         """
-        Displays each hull and allows someone to label the hull as being associated to a pole or not and returns a
-        data structure mapping hulls to labels
+        Displays each hull and allows a user to label the hull as being associated to tje object or not and returns a
+        data structure mapping hulls to the given labels
 
         @param hulls: The convex hulls 
         @param src: The source image from which teh convex hulls have been created
@@ -62,9 +76,36 @@ class PoleHullLabeller:
         """
         
         labels = []
-
+        not_object, maybe_object = [], []  
         for hull in hulls:
+            maybe_object.append(hull) if self.filter_fn(hull) else not_object.append(hull)      
+        for hull in not_object:
+            labels.append((hull, 0))
+        for hull in maybe_object:
+                cpy = src.copy()
+                hull_img = cv.polylines(cpy, [hull], True, (0,0,255), 3)
+                cv.imshow("Hull", hull_img)
+                keycode = cv.waitKey(0)
+                if keycode == 49:
+                    labels.append((hull, 0))
+                    print("Not the object")
+                elif keycode == 50:
+                    labels.append((hull, 1))
+                    print("The object!")
+                else:
+                    raise Exception("Unexpected Key Pressed")
+        cv.destroyAllWindows()
+        return labels
 
+
+class PoleHullLabeller(ObjectHullLabeller):
+    """
+    Class for labelling pole hulls 
+    """
+
+
+    def __init__(self):
+        def filter_fn(hull):
             angle = 0
             MA = 1
             ma = 1
@@ -73,24 +114,25 @@ class PoleHullLabeller:
             except:
                 pass
             cosAngle = np.abs(np.cos(angle*np.pi/180))
-
             # Only human-classify hulls if it is reasonably a vertically oriented rectangle
-            # This is a hueristic to not have to waste time clasifying hulls clearly not poles
-            if  (cosAngle < 1.75) and (cosAngle > 0.85) and (MA/ma < 0.28):
-                cpy = src.copy()
-                hull_img = cv.polylines(cpy, [hull], True, (0,0,255), 3)
-                cv.imshow("Hull", hull_img)
-                keycode = cv.waitKey(0)
-                if keycode == 49:
-                    labels.append((hull, 0))
-                    print("Not a Pole")
-                elif keycode == 50:
-                    labels.append((hull, 1))
-                    print("A Pole!")
-                else:
-                    raise Exception("Unexpected Key Pressed")
-            else:
-                labels.append((hull, 0))
-        cv.destroyAllWindows()
-        return labels
+            if  (cosAngle < 1.75) and (cosAngle > 0.85) and (MA/ma < 0.30):
+                return True
+            else: 
+                return False
+        detector = gate_detector.GateDetector(im_resize=3.0/4)
+        super().__init__('gate', detector, filter_fn)
+
+
+class PathMarkerHullLabeller(ObjectHullLabeller):
+    """
+    Class for labelling path markers
+    """
+
+
+    def __init__(self):
+        def filter_fn(hull):
+            return True
+        detector = path_marker_detector.PathMarkerDetector(im_resize=3.0/4)
+        super().__init__('pathmarker', detector, filter_fn)
+
 

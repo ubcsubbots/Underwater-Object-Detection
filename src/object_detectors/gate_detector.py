@@ -44,19 +44,20 @@ class GateDetector(ObjectDetector):
 
         @param src: Raw underwater image containing the gate
 
-        @returns: Images associated to preprocessing, segmentation, bounding and pose estimation
+        @returns: Images associated to preprocessing and enhancement, segmentation, bounding and pose estimation
         """
         pre = super().preprocess(src)
-        seg = super().morphological(self.segment(pre), open_kernel=(1,1), close_kernel=(1,1))
+        enh = super().enhance(pre, clahe_clr_spaces=[], clahe_clip_limit=1)
+        seg = super().morphological(self.segment(enh), open_kernel=(1,1), close_kernel=(1,1))
         hulls = super().convex_hulls(seg, upper_area=1.0/4, lower_area=1.0/800)
         bound = self.bound_gate_using_poles(hulls, src)
         bound_and_pose = self.estimate_gate_pose(bound)
-        return pre, seg, bound_and_pose
+        return enh, seg, bound_and_pose
 
 
     def segment(self, src):
         """
-        Segments the image using thresholded saturation gradient and orange color mask
+        Segments the image using thresholded saturation gradient and orange/red color mask
 
         @param src: A preprocessed image
 
@@ -71,7 +72,7 @@ class GateDetector(ObjectDetector):
         grad_mean, grad_std = cv.meanStdDev(grad)
         _,grad_thresh = cv.threshold(grad, grad_mean+4*grad_std,255,cv.THRESH_BINARY)
             
-        # Create binary image of color mask on hue 
+        # Orange/red hue mask
         upper_hue_mask = cv.inRange(hsv[:,:,0],175,180) # Upper orange/red range
         lower_hue_mask = cv.inRange(hsv[:,:,0],0,30) # Lower orange/red range
         color_mask = np.bitwise_or(upper_hue_mask, lower_hue_mask)

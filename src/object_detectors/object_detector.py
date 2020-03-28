@@ -40,23 +40,78 @@ class ObjectDetector(ABC):
     
     def preprocess(self, src):
         """
-        Preprocesses the source image to adjust for underwater artifacts
+        Preprocesses the source image by blurring and resizing 
 
         @param src: A raw unscaled image
 
         @returns: The preprocessed and scaled image
         """
-        # Apply CLAHE and Gaussian on each RGB channel then resize
-        clahe = cv.createCLAHE(clipLimit=1.0, tileGridSize=(8,8))
-        bgr = cv.split(src)
-        kernel = (3,3)
-        bgr[0] = cv.GaussianBlur(clahe.apply(bgr[0]), kernel, 0) 
-        bgr[1] = cv.GaussianBlur(clahe.apply(bgr[1]), kernel, 0) 
-        bgr[2] = cv.GaussianBlur(clahe.apply(bgr[2]), kernel, 0) 
-        src = cv.merge(bgr)
         self.im_dims = (int(src.shape[1]*self.im_resize), int(src.shape[0]*self.im_resize))
-        src = cv.resize(src, self.im_dims, cv.INTER_CUBIC )
-        self.curr_image = src
+        if self.im_resize < 1.0:
+            split = cv.split(src)
+            kernel = (3,3)
+            sig = 1
+            split[0] = cv.GaussianBlur(split[0], kernel, sig)
+            split[1] = cv.GaussianBlur(split[1], kernel, sig)
+            split[2] = cv.GaussianBlur(split[2], kernel, sig)
+            src = cv.merge(split)
+            src = cv.resize(src, self.im_dims, cv.INTER_CUBIC )
+            self.curr_image = src
+        return src
+
+
+    def enhance(self, src, clahe_clr_spaces=['bgr', 'hsv', 'lab'], clahe_clip_limit=1):
+        """
+        Enhances a raw image to account for underwater artifacts affecting contrast, hue and saturation. Performs
+        CLAHE on the given input color spaces then blends the equally weighted result across all color spaces used
+
+        @param src: A preprocessed image
+        @param clahe_clr_spaces: The color spaces to perform CLAHE on
+        @param clahe_clip_limit: The limit at which CLAHE clips the contrast to prevent over-contrast
+        
+        @returns: An enhanced image
+        """
+
+        if any([s not in ['bgr', 'hsv', 'lab'] for s in clahe_clr_spaces]):
+            print("Please only use any of ['bgr', 'hsv', 'lab'] as CLAHE color spaces")
+            return src
+
+        clahe = cv.createCLAHE(clipLimit=clahe_clip_limit, tileGridSize=(11,11))
+        parts = []
+
+        # Apply CLAHE on all given CLAHE color spaces
+        if 'bgr' in clahe_clr_spaces:
+            bgr = cv.split(src)
+            bgr[0] = clahe.apply(bgr[0])
+            bgr[1] = clahe.apply(bgr[1])
+            bgr[2] = clahe.apply(bgr[2])
+            bgr_clahe = cv.merge(bgr)
+            parts.append(bgr_clahe)
+        if 'lab' in clahe_clr_spaces:
+            lab = cv.cvtColor(src, cv.COLOR_BGR2LAB)
+            lab = cv.split(lab)
+            lab[0] = clahe.apply(lab[0])
+            lab[1] = clahe.apply(lab[1])
+            lab[2] = clahe.apply(lab[2])
+            lab_clahe = cv.merge(lab)
+            parts.append(cv.cvtColor(lab_clahe, cv.COLOR_LAB2BGR))
+        if 'hsv' in clahe_clr_spaces: 
+            hsv = cv.cvtColor(src, cv.COLOR_BGR2HSV)
+            hsv = cv.split(hsv)
+            hsv[0] = clahe.apply(hsv[0])
+            hsv[1] = clahe.apply(hsv[1])
+            hsv[2] = clahe.apply(hsv[2])
+            hsv_clahe = cv.merge(hsv)
+            parts.append(cv.cvtColor(hsv_clahe, cv.COLOR_HSV2BGR))
+
+        # Add parts using equal weighting
+        if len(parts) > 0:
+            weight = 1.0/len(parts)
+            blended = np.zeros((self.im_dims[1], self.im_dims[0], 3))
+            for p in parts:
+
+                blended += weight*p
+            src = blended.astype(np.uint8)
         return src
 
 
