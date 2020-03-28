@@ -61,6 +61,7 @@ def detector_image_test(folder, detector):
     """
     Tests detector on a set of 20 image
 
+    @param folder: The name of the image folder to use 
     @param detector: Detector object which must implement base object detector class
 
     """
@@ -82,22 +83,26 @@ def detector_image_test(folder, detector):
         detector.gate_cntr = None
 
 
-def label_data(datatype):
+def label_data(folder, detector):
     """
     Run data label program given by datatype
 
-    @param datatype: The type of data that is being labelled
+    @param folder: The name of the image folder to use 
+    @param detector: Detector object which must implement base object detector class
     """
     labels = []
-    if datatype is "pole":
-        labeller = data_labelling.PoleHullLabeller()
+    object_name = ""
+    if isinstance(detector, gate_detector.GateDetector):
+        labeller = data_labelling.PoleHullLabeller(folder, detector)
         labels = labeller.create_labelled_dataset()
-    elif datatype is "pathmarker":
-        labeller = data_labelling.PathMarkerHullLabeller()
+        object_name = "pole" 
+    elif isinstance(detector, path_marker_detector.PathMarkerDetector):
+        labeller = data_labelling.PathMarkerHullLabeller(folder, detector)
         labels = labeller.create_labelled_dataset()
+        object_name = "path_marker"
     r = random.randint(0,1000)
     directory = os.path.dirname(os.getcwd())
-    filename = datatype + "_data" + str(r) + '.pkl'
+    filename = object_name + "_data" + str(r) + '.pkl'
     with open(os.path.join(directory, 'pickle', filename), 'wb') as file:
         pickle.dump(labels, file)
 
@@ -140,16 +145,16 @@ if __name__ == '__main__':
         elif gate == "vid":
             detector_video_test('gate.mp4', detector, record=record)
         elif gate == "label":
-            label_data("pole")
+            label_data("gate", detector)
 
     if path_marker is not None:
         detector = path_marker_detector.PathMarkerDetector(im_resize=im_resize, debug=debug)
         if path_marker == "im":
-            detector_image_test('pathmarker', detector)
+            detector_image_test('path_marker', detector)
         elif path_marker == "vid":
-            detector_video_test('pathmarker.mp4', detector, record=record)
+            detector_video_test('path_marker.mp4', detector, record=record)
         elif path_marker == "label":
-            label_data("pathmarker")
+            label_data("path_marker", detector)
 
     if classify is not None:
         if classify == "pole":

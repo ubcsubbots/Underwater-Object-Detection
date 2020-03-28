@@ -66,11 +66,11 @@ class ObjectHullLabeller:
         
     def display_and_label_hulls(self, hulls, src):
         """
-        Displays each hull and allows a user to label the hull as being associated to tje object or not and returns a
+        Displays each hull and allows a user to label the hull as being associated to the object or not and returns a
         data structure mapping hulls to the given labels
 
         @param hulls: The convex hulls 
-        @param src: The source image from which teh convex hulls have been created
+        @param src: The source image from which the convex hulls have been created
 
         @returns: A list where each entry is a tuple mapping a hull to it's label
         """
@@ -104,7 +104,7 @@ class PoleHullLabeller(ObjectHullLabeller):
     """
 
 
-    def __init__(self):
+    def __init__(self, folder, detector):
         def filter_fn(hull):
             angle = 0
             MA = 1
@@ -119,8 +119,7 @@ class PoleHullLabeller(ObjectHullLabeller):
                 return True
             else: 
                 return False
-        detector = gate_detector.GateDetector(im_resize=3.0/4)
-        super().__init__('gate', detector, filter_fn)
+        super().__init__(folder, detector, filter_fn)
 
 
 class PathMarkerHullLabeller(ObjectHullLabeller):
@@ -129,10 +128,9 @@ class PathMarkerHullLabeller(ObjectHullLabeller):
     """
 
 
-    def __init__(self):
+    def __init__(self, folder, detector):
         def filter_fn(hull):
             return True
-        detector = path_marker_detector.PathMarkerDetector(im_resize=3.0/4)
-        super().__init__('pathmarker', detector, filter_fn)
+        super().__init__(folder, detector, filter_fn)
 
 

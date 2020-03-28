@@ -47,7 +47,7 @@ class ObjectDetector(ABC):
         @returns: The preprocessed and scaled image
         """
         self.im_dims = (int(src.shape[1]*self.im_resize), int(src.shape[0]*self.im_resize))
-        if self.im_resize < 1.0:
+        if self.im_resize != 1.0:
             split = cv.split(src)
             kernel = (3,3)
             sig = 1
@@ -67,7 +67,7 @@ class ObjectDetector(ABC):
 
         @param src: A preprocessed image
         @param clahe_clr_spaces: The color spaces to perform CLAHE on
-        @param clahe_clip_limit: The limit at which CLAHE clips the contrast to prevent over-contrast
+        @param clahe_clip_limit: The limit at which CLAHE clips the contrast to prevent over-contrasting
         
         @returns: An enhanced image
         """
@@ -109,7 +109,6 @@ class ObjectDetector(ABC):
             weight = 1.0/len(parts)
             blended = np.zeros((self.im_dims[1], self.im_dims[0], 3))
             for p in parts:
-
                 blended += weight*p
             src = blended.astype(np.uint8)
         return src

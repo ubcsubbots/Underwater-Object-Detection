@@ -47,7 +47,7 @@ class PathMarkerDetector(ObjectDetector):
 
         @returns: A segmented grayscale image
         """
-        # Convert to HSV and LAB color spaces
+        # Convert to LAB color space
         lab = cv.cvtColor(src, cv.COLOR_BGR2LAB)
 
         # Alpha threshold
