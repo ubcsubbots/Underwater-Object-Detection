@@ -245,13 +245,15 @@ class GateDetector(ObjectDetector):
         real_roots = roots[np.isreal(roots)].real
         pos_root =  real_roots[real_roots >=  0][0] # If root is zero, zero appears twice
 
-        # Compute unrotated basis vectors
+        # Compute first unrotated basis vector u1 using the positive root as the z coordinate
         u1 = np.concatenate((hor,[pos_root]))
-        u2 = np.concatenate((vert, [-C/pos_root if pos_root > 0 else 0]))
-        u3 = np.cross(u1,u2)
 
-        # Get pixel scale information of 2D projection of 3D poles
+        # Get scale infomration using first basis vector
         s = np.linalg.norm(u1)/w
+
+        # Computer the rest of the unrotated basis vectors
+        u2 = np.concatenate((vert, [np.sqrt(np.power(s*h, 2) -B)]))
+        u3 = np.cross(u1,u2)
 
         # Computed desired planar basis vectors
         v1 = [s*w,0,0]
