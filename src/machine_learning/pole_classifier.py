@@ -5,11 +5,15 @@ import pickle
 import os
 import numpy as np
 import cv2 as cv
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D 
+
 from sklearn import svm
 from sklearn.metrics import classification_report
-from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.utils.testing import ignore_warnings
+from sklearn.exceptions import ConvergenceWarning
+ 
 
 from .featurize import PoleFeaturizer
 
@@ -25,7 +29,12 @@ class PoleClassifier:
     """
 
 
-    def __init__(self, datafile="pole_data2.pkl"):
+    def __init__(self, datafile):
+        """
+        Initializes a pole classifier
+
+        @param datafile: The datafile name that contains the data
+        """
         self.featurizer = PoleFeaturizer()
         # Load pickle data
         directory = os.path.dirname(os.getcwd())
@@ -71,41 +80,62 @@ class PoleClassifier:
         plt.show()
 
 
-    def run(self):
+    @ignore_warnings(category=ConvergenceWarning)
+    def run(self, metric='precision'):
         """
-        Featurizes and trains an SVM classifier on pole convex hull data
+        Featurizes the classifiers data, then using a random training/test split, performs
+        grid search to search for the parameters leading to the highest precision/recall/accuracy
+        and serializes the model associated to the given metic
+        
+        @param metric: The metric of the model to serialize
         """
 
         # Featurize raw data
         X, y = self.featurizer.featurize_for_training(self.data)
 
-        # Split the data 90/10 into training and testing
-        X_train, X_test, y_train, y_test = train_test_split(X,y, test_size=0.1, train_size=0.9)
+        # Different metric scores to search
+        scores = ['precision', 'recall', 'accuracy']
+        if metric not in scores:
+            print("The classifier metric must be one of: ", scores)
+            return 
+        
+        # Params to tune in grid search
+        tune_params = [{'penalty': ['l1'], 'C':[0.01, 0.1, 1,10,100,1000], 'dual': [False], 
+                         'max_iter': [1000], 'class_weight': ['balanced', None]}, 
+                        {'penalty': ['l2'], 'loss': ['hinge', 'squared_hinge'], 'C':[0.01, 0.1,1,10,100,1000], 
+                        'max_iter':[1000],'class_weight': ['balanced', None]}]
 
-        # Train Model
-        model = svm.SVC(kernel='rbf')
-        model.fit(X_train, y_train)
+        # Split the data 80/20 into training and testing
+        X_train, X_test, y_train, y_test = train_test_split(X,y, test_size=0.2, train_size=0.8, shuffle=True)
 
-        # Get report on training data
-        y_hat = model.predict(X_train)
-        print("Training Report")
-        print(classification_report(y_train, y_hat))
+        best_params = dict()
+        for score in scores:
+            
+            model = GridSearchCV(svm.LinearSVC(), tune_params, score, cv=5, iid=True)
+            model.fit(X_train, y_train)
 
-        # Get report on test data
-        print("Test Report")
-        y_hat_test = model.predict(X_test)
-        print(classification_report(y_test, y_hat_test))
+            best_params[score] = model.best_params_
 
-        # Serialize model as pickle
+        # Get test results for each score using best parameters
+        models = dict()
+        for score in scores:
+            print("Parameters for highest %s: %s" %(score, best_params[score]))
+            model = svm.LinearSVC(**best_params[score])
+            model.fit(X_train, y_train)
+            models[score] = model
+            print("Coefficient vector sparsity: %d/%d" %(len(model.coef_[0]) - np.count_nonzero(model.coef_), len(model.coef_[0])))
+            print("Features not used: ", np.argwhere(model.coef_[0] == 0).flatten())
+            y_hat_test = model.predict(X_test)
+            labels = ["Not Pole", "Pole"]
+            print(classification_report(y_test, y_hat_test, target_names=labels))
+
+        # Serialize the model with desired score metric 
         d = os.path.dirname(os.getcwd())
         with open(os.path.join(d, 'pickle/model.pkl'), 'wb') as file:
-            pickle.dump(model, file)
+            pickle.dump(models[metric], file)
             print("Updated model.pkl")
 
-        # Plot the classified training data
-        print("Plotting training data")
-        self.plot(X_train,y_train, y_hat)
+        self.plot(X_test, y_test, models[metric].predict(X_test))
 
-        # Plot the classified test data
-        print("Plotting test data")
-        self.plot(X_test, y_test, y_hat_test )
+
+

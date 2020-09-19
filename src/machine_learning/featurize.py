@@ -4,6 +4,8 @@
 import numpy as np
 import cv2 as cv
 
+from sklearn.preprocessing import StandardScaler
+
 
 """
 Functions used to featurize object data for training and classification
@@ -17,6 +19,7 @@ class PoleFeaturizer:
 
 
     def __init__(self):
+        self.scaler = StandardScaler()
         self.cnt_features = ContourFeatures()
 
 
@@ -37,7 +40,9 @@ class PoleFeaturizer:
             X.append(self.form_feature_vector(hull))
             y.append(label)
         
-        return np.asarray(X).astype(float), np.asarray(y).astype(float)
+        X = self.scale_data(np.asarray(X).astype(float))
+        y = np.asarray(y).astype(float)
+        return X, y
 
 
     def featurize_for_classification(self, hulls):
@@ -51,7 +56,9 @@ class PoleFeaturizer:
         X_hat = []  
         for hull in hulls:
             X_hat.append(self.form_feature_vector(hull))    
-        return np.asarray(X_hat).astype(float)
+
+        X_hat = self.scale_data(np.asarray(X_hat).astype(float))
+        return X_hat
 
 
     def form_feature_vector(self, hull):
@@ -67,18 +74,36 @@ class PoleFeaturizer:
         MA, ma, angle = self.cnt_features.ellispe_features(hull)
         hull_area, rect_area, aspect_ratio = self.cnt_features.area_features(hull)
         hu_moments = self.cnt_features.hu_moments_features(hull)
+        min_rect, min_tri, min_circ_rad = self.cnt_features.min_area_features(hull)
 
         axis_ratio = float(MA)/ma
         angle = np.abs(np.sin(angle *np.pi/180))
-        extent = rect_area/hull_area
+        extent = cv.contourArea(min_rect)/hull_area
+        triangularity = cv.contourArea(min_tri)/hull_area
 
+        # Even though we calculate more features, from testing we find these work the best
         features.append(axis_ratio)
         features.append(aspect_ratio)
         features.append(extent)
-        features.append(angle)
         features += hu_moments
 
-        return np.asarray(features).astype(float)
+        x = np.asarray(features).astype(float)
+        return x
+
+
+    def scale_data(self, X, scale=False):
+        """
+        Scales data to normalize to 0 mean, 1 std
+        
+        @param X: unscaled feature matrix
+        @param scale: If False, this method has no effect on X
+
+        @returns: Scaled feature matrix 
+        """
+        if scale:
+            self.scaler.fit(X)
+            X = self.scaler.transform(X)
+        return X
 
 
 class ContourFeatures:
@@ -121,16 +146,32 @@ class ContourFeatures:
         aspect_ratio =  float(w)/h
         return cnt_area, rect_area, aspect_ratio
 
+    def min_area_features(self, cnt):
+        """
+        Produces min area features of the contour
+
+        @param cnt: A convex hull contour
+
+        @returns: Min area triangle, min area rect, min area circle radius
+        """
+        min_rect = cv.minAreaRect(cnt)
+        min_rect = np.int0(cv.boxPoints(min_rect))
+        min_tri = cv.minEnclosingTriangle(cnt)[1] # Sometimes returns None
+        min_circ_rad = cv.minEnclosingCircle(cnt)[1]
+        return min_rect, min_tri, min_circ_rad
+
 
     def hu_moments_features(self,cnt):
         """
-        Produces the hu moment features of the contour
+        Produces the log of the hu moment features of the contour
 
         @param cnt: A convex hull contour
 
         @returns: A list of the 7 hu moments
         """
+        # https://www.learnopencv.com/shape-matching-using-hu-moments-c-python/
         moments = cv.moments(cnt)
-        hu_moments = cv.HuMoments(moments)
+        mapped_hu_moments = map(lambda m: -1*np.copysign(1.0, m)*np.log10(abs(m)), cv.HuMoments(moments))
+        hu_moments = np.array(list(mapped_hu_moments))
 
         return list(hu_moments.flatten())
