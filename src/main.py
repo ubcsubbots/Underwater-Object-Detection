@@ -79,8 +79,9 @@ def detector_image_test(folder, detector):
             cv.imshow('Image 1', im1)
             cv.imshow('Image 2', im2)
         cv.waitKey(0)
-        # Reset gate contour 
+        # Reset gate contour and frame count
         detector.gate_cntr = None
+        detector.frame_count = 0
 
 
 def label_data(folder, detector):
@@ -118,6 +119,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-c', '--classify')
     parser.add_argument('-df', '--datafile', default='pole_data.pkl')
+    parser.add_argument('-m', '--metric')
     io_args = parser.parse_args()
 
     # Programs
@@ -132,6 +134,7 @@ if __name__ == '__main__':
 
     # Classify args
     datafile = io_args.datafile
+    metric = io_args.metric
     
     programs = [gate,classify,path_marker]
     if (sum(p is not None for p in programs) != 1):
@@ -158,7 +161,7 @@ if __name__ == '__main__':
 
     if classify is not None:
         if classify == "pole":
-            pole_classifier.PoleClassifier(datafile=datafile).run()
+            pole_classifier.PoleClassifier(datafile=datafile).run(metric=metric)
 
 
 
